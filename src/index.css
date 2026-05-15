@@ -1,0 +1,30 @@
+@import "tailwindcss";
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+}
+
+/* Hauteur de la carte Leaflet */
+.leaflet-container {
+  height: 100%;
+  width: 100%;
+  background: #e8eef2;
+  font-family: inherit;
+}
+
+/* Popup Leaflet : typographie cohérente avec Tailwind */
+.leaflet-popup-content {
+  margin: 10px 12px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.leaflet-popup-content b { font-weight: 600; }
+
+/* Scrollbar discrète dans la liste */
+.nice-scroll::-webkit-scrollbar { width: 8px; }
+.nice-scroll::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 8px;
+}
+.nice-scroll::-webkit-scrollbar-thumb:hover { background: #94a3b8; }

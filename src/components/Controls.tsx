@@ -42,11 +42,10 @@ export default function Controls({
   };
 
   return (
-    <div className="flex flex-col gap-3 p-4 bg-white border-b border-slate-200">
-      {/* Ligne 1 : recherche + géoloc + refresh */}
+    <div className="flex flex-col gap-3 p-4 bg-[#0a0a0b] border-b border-white/10">
       <form onSubmit={submitCity} className="flex gap-2">
         <div className="relative flex-1">
-          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30">
             🔍
           </span>
           <input
@@ -54,13 +53,13 @@ export default function Controls({
             value={cityInput}
             onChange={(e) => setCityInput(e.target.value)}
             placeholder="Rechercher une ville (ex : Lyon)"
-            className="w-full pl-9 pr-3 py-2 text-sm rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+            className="w-full pl-9 pr-3 py-2 text-sm rounded-lg bg-white/[0.03] border border-white/10 text-white placeholder-white/30 focus:outline-none focus:border-[#00E676]/50 transition-colors"
           />
         </div>
         <button
           type="submit"
           disabled={searching}
-          className="px-4 py-2 text-sm font-medium text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 disabled:opacity-50"
+          className="px-4 py-2 text-sm font-medium text-black bg-[#00E676] rounded-lg hover:bg-[#00E676]/90 disabled:opacity-50 transition"
         >
           {searching ? "…" : "Chercher"}
         </button>
@@ -69,7 +68,7 @@ export default function Controls({
           onClick={onLocate}
           disabled={locating}
           title="Ma position"
-          className="px-3 py-2 text-sm font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 disabled:opacity-50"
+          className="px-3 py-2 text-sm font-medium text-white bg-white/[0.03] border border-white/10 rounded-lg hover:border-white/20 disabled:opacity-50 transition"
         >
           {locating ? "…" : "📍"}
         </button>
@@ -77,22 +76,20 @@ export default function Controls({
           type="button"
           onClick={onRefresh}
           disabled={loading}
-          title="Actualiser les prix"
-          className="px-3 py-2 text-sm font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 disabled:opacity-50"
+          title="Actualiser"
+          className="px-3 py-2 text-sm font-medium text-white bg-white/[0.03] border border-white/10 rounded-lg hover:border-white/20 disabled:opacity-50 transition"
         >
           {loading ? "…" : "🔄"}
         </button>
       </form>
 
-      {/* Ligne 2 : centre actuel */}
-      <div className="text-xs text-slate-500 flex items-center gap-1 truncate">
+      <div className="text-xs text-white/50 flex items-center gap-1 truncate">
         <span className="shrink-0">📌</span>
         <span className="truncate">{centerLabel}</span>
       </div>
 
-      {/* Ligne 3 : filtres carburant */}
       <div>
-        <div className="text-[11px] uppercase tracking-wide text-slate-400 mb-1.5 font-medium">
+        <div className="text-[11px] uppercase tracking-widest text-white/40 mb-1.5 font-medium">
           Carburant
         </div>
         <div className="flex flex-wrap gap-1.5">
@@ -112,10 +109,9 @@ export default function Controls({
         </div>
       </div>
 
-      {/* Ligne 4 : rayon + tri */}
       <div className="flex flex-wrap gap-4 items-end">
         <div className="flex-1 min-w-[180px]">
-          <div className="text-[11px] uppercase tracking-wide text-slate-400 mb-1.5 font-medium">
+          <div className="text-[11px] uppercase tracking-widest text-white/40 mb-1.5 font-medium">
             Rayon
           </div>
           <div className="flex gap-1">
@@ -125,8 +121,8 @@ export default function Controls({
                 onClick={() => setRadiusKm(r)}
                 className={`flex-1 px-2 py-1 rounded text-xs font-medium border transition ${
                   radiusKm === r
-                    ? "bg-slate-900 text-white border-slate-900"
-                    : "bg-white text-slate-700 border-slate-300 hover:border-slate-400"
+                    ? "bg-white text-black border-white"
+                    : "bg-white/[0.03] text-white/70 border-white/10 hover:border-white/20"
                 }`}
               >
                 {r} km
@@ -135,16 +131,16 @@ export default function Controls({
           </div>
         </div>
         <div>
-          <div className="text-[11px] uppercase tracking-wide text-slate-400 mb-1.5 font-medium">
-            Trier par
+          <div className="text-[11px] uppercase tracking-widest text-white/40 mb-1.5 font-medium">
+            Trier
           </div>
           <div className="flex gap-1">
             <button
               onClick={() => setSortMode("distance")}
               className={`px-3 py-1 rounded text-xs font-medium border transition ${
                 sortMode === "distance"
-                  ? "bg-slate-900 text-white border-slate-900"
-                  : "bg-white text-slate-700 border-slate-300 hover:border-slate-400"
+                  ? "bg-white text-black border-white"
+                  : "bg-white/[0.03] text-white/70 border-white/10 hover:border-white/20"
               }`}
             >
               📏 Distance
@@ -153,8 +149,8 @@ export default function Controls({
               onClick={() => setSortMode("price")}
               className={`px-3 py-1 rounded text-xs font-medium border transition ${
                 sortMode === "price"
-                  ? "bg-slate-900 text-white border-slate-900"
-                  : "bg-white text-slate-700 border-slate-300 hover:border-slate-400"
+                  ? "bg-white text-black border-white"
+                  : "bg-white/[0.03] text-white/70 border-white/10 hover:border-white/20"
               }`}
             >
               💶 Prix
@@ -180,8 +176,8 @@ function FilterChip({
       onClick={onClick}
       className={`px-3 py-1 rounded-full text-xs font-medium border transition ${
         active
-          ? "bg-emerald-600 text-white border-emerald-600"
-          : "bg-white text-slate-700 border-slate-300 hover:border-emerald-400 hover:text-emerald-700"
+          ? "bg-[#00E676] text-black border-[#00E676]"
+          : "bg-white/[0.03] text-white/70 border-white/10 hover:border-[#00E676]/40 hover:text-[#00E676]"
       }`}
     >
       {label}

@@ -1,281 +1,304 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Controls from "./components/Controls";
-import StationList from "./components/StationList";
-import Map from "./components/Map";
-import { fetchStationsAround } from "./lib/api";
-import { distanceKm, geocodeCity } from "./lib/geo";
-import type { FuelType, Position, SortMode, Station } from "./types";
+import { useState } from "react";
+import { MapContainer, TileLayer, CircleMarker } from "react-leaflet";
+import "leaflet/dist/leaflet.css";
+import StationsApp from "./StationsApp";
+import Comparator from "./components/Comparator";
 
-// Centre par défaut : Paris (changera dès qu'on a l'autorisation de géoloc)
-const DEFAULT_CENTER: Position = { lat: 48.8566, lng: 2.3522 };
+// Grandes villes françaises — marqueurs décoratifs sur la carte du Hero
+const HERO_CITIES = [
+  { name: "Paris", lat: 48.8566, lng: 2.3522 },
+  { name: "Lyon", lat: 45.7578, lng: 4.832 },
+  { name: "Marseille", lat: 43.2965, lng: 5.3698 },
+  { name: "Toulouse", lat: 43.6047, lng: 1.4442 },
+  { name: "Nice", lat: 43.7102, lng: 7.262 },
+  { name: "Nantes", lat: 47.2184, lng: -1.5536 },
+  { name: "Strasbourg", lat: 48.5734, lng: 7.7521 },
+  { name: "Bordeaux", lat: 44.8378, lng: -0.5792 },
+  { name: "Lille", lat: 50.6292, lng: 3.0573 },
+  { name: "Rennes", lat: 48.1173, lng: -1.6778 },
+  { name: "Reims", lat: 49.2583, lng: 4.0317 },
+  { name: "Le Havre", lat: 49.4944, lng: 0.1079 },
+  { name: "Saint-Étienne", lat: 45.4397, lng: 4.3872 },
+  { name: "Toulon", lat: 43.1242, lng: 5.928 },
+  { name: "Grenoble", lat: 45.1885, lng: 5.7245 },
+  { name: "Dijon", lat: 47.322, lng: 5.0415 },
+  { name: "Angers", lat: 47.4784, lng: -0.5632 },
+  { name: "Nîmes", lat: 43.8367, lng: 4.3601 },
+  { name: "Clermont-Ferrand", lat: 45.7772, lng: 3.087 },
+  { name: "Le Mans", lat: 48.0061, lng: 0.1996 },
+  { name: "Aix-en-Provence", lat: 43.5297, lng: 5.4474 },
+  { name: "Brest", lat: 48.3904, lng: -4.4861 },
+  { name: "Tours", lat: 47.3941, lng: 0.6848 },
+  { name: "Amiens", lat: 49.8941, lng: 2.2958 },
+  { name: "Limoges", lat: 45.8336, lng: 1.2611 },
+  { name: "Perpignan", lat: 42.6887, lng: 2.8948 },
+  { name: "Metz", lat: 49.1193, lng: 6.1757 },
+  { name: "Besançon", lat: 47.2378, lng: 6.0241 },
+  { name: "Orléans", lat: 47.9029, lng: 1.9039 },
+  { name: "Caen", lat: 49.1829, lng: -0.3707 },
+];
 
-// Rayon de recherche par défaut
-const DEFAULT_RADIUS_KM = 10;
+// Prix moyens nationaux simulés (proches de la réalité) — affichés dans la landing
+const NATIONAL_PRICES = [
+  { name: "Gazole", price: 1.847, change: -1.2, unit: "€/L" },
+  { name: "SP95", price: 1.879, change: -0.8, unit: "€/L" },
+  { name: "SP98", price: 1.942, change: -0.6, unit: "€/L" },
+  { name: "E10", price: 1.832, change: -1.1, unit: "€/L" },
+  { name: "GPL", price: 0.987, change: 0.4, unit: "€/L" },
+  { name: "E85", price: 0.789, change: -0.3, unit: "€/L" },
+];
 
-// Nombre maximum de stations affichées dans la liste de gauche
-const LIST_LIMIT = 80;
+
 
 export default function App() {
-  const [center, setCenter] = useState<Position>(DEFAULT_CENTER);
-  const [centerLabel, setCenterLabel] = useState<string>(
-    "Paris (par défaut) — géolocalisez-vous ou cherchez une ville"
-  );
-  const [origin, setOrigin] = useState<Position | undefined>(undefined);
-  const [radiusKm, setRadiusKm] = useState<number>(DEFAULT_RADIUS_KM);
-  const [fuelFilter, setFuelFilter] = useState<FuelType | "all">("all");
-  const [sortMode, setSortMode] = useState<SortMode>("distance");
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [locating, setLocating] = useState(false);
-  const [searching, setSearching] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [stations, setStations] = useState<Station[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
+  const [view, setView] = useState<"landing" | "app">("landing");
+  const [initialCity, setInitialCity] = useState("");
 
-  // Pour annuler une requête API obsolète quand l'utilisateur bouge
-  const abortRef = useRef<AbortController | null>(null);
-
-  // Géolocalisation au démarrage (silencieuse)
-  useEffect(() => {
-    if (!navigator.geolocation) return;
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const p = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-        setOrigin(p);
-        setCenter(p);
-        setCenterLabel("📍 Ma position");
-      },
-      () => {
-        // Pas d'autorisation → on garde Paris en attendant une action utilisateur
-      },
-      { timeout: 6000, maximumAge: 60_000 }
+  if (view === "app") {
+    return (
+      <StationsApp
+        initialCity={initialCity}
+        onBack={() => setView("landing")}
+      />
     );
-  }, []);
-
-  // Charger les stations autour du centre (avec annulation)
-  const loadStations = useCallback(
-    async (
-      pos: Position,
-      radius: number,
-      fuel: FuelType | "all"
-    ): Promise<void> => {
-      // Annuler la requête précédente
-      abortRef.current?.abort();
-      const ctrl = new AbortController();
-      abortRef.current = ctrl;
-
-      setLoading(true);
-      setError(null);
-      try {
-        const list = await fetchStationsAround(pos, radius, fuel, ctrl.signal);
-        if (ctrl.signal.aborted) return;
-        setStations(list);
-        setLastUpdate(new Date());
-      } catch (e) {
-        if ((e as Error).name === "AbortError") return;
-        setError(
-          `Impossible de charger les stations : ${
-            (e as Error).message || "erreur réseau"
-          }`
-        );
-        setStations([]);
-      } finally {
-        if (!ctrl.signal.aborted) setLoading(false);
-      }
-    },
-    []
-  );
-
-  // (Re)charger quand le centre / rayon / carburant change
-  useEffect(() => {
-    loadStations(center, radiusKm, fuelFilter);
-  }, [center.lat, center.lng, radiusKm, fuelFilter, loadStations]);
-
-  const handleLocate = () => {
-    setLocating(true);
-    setError(null);
-    if (!navigator.geolocation) {
-      setError("Géolocalisation non supportée par ce navigateur.");
-      setLocating(false);
-      return;
-    }
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const p = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-        setOrigin(p);
-        setCenter(p);
-        setCenterLabel("📍 Ma position");
-        setLocating(false);
-      },
-      (err) => {
-        setError(`Impossible de vous localiser : ${err.message}`);
-        setLocating(false);
-      },
-      { enableHighAccuracy: true, timeout: 10000 }
-    );
-  };
-
-  const handleSearchCity = async (city: string) => {
-    setSearching(true);
-    setError(null);
-    const pos = await geocodeCity(city);
-    if (!pos) {
-      setError(`Ville introuvable : « ${city} »`);
-      setSearching(false);
-      return;
-    }
-    setCenter(pos);
-    setOrigin(pos);
-    setCenterLabel(city);
-    setSearching(false);
-  };
-
-  const handleRefresh = () => loadStations(center, radiusKm, fuelFilter);
-
-  // Calcul distance + tri + cap à LIST_LIMIT
-  const visibleStations = useMemo(() => {
-    const ref = origin ?? center;
-    const withDistance = stations.map((s) => ({
-      ...s,
-      distanceKm: distanceKm(ref, { lat: s.lat, lng: s.lng }),
-    }));
-
-    const sorted = [...withDistance];
-    if (sortMode === "price") {
-      sorted.sort((a, b) => {
-        const pa =
-          fuelFilter === "all"
-            ? Math.min(...a.fuels.map((f) => f.price))
-            : a.fuels.find((f) => f.type === fuelFilter)?.price ?? Infinity;
-        const pb =
-          fuelFilter === "all"
-            ? Math.min(...b.fuels.map((f) => f.price))
-            : b.fuels.find((f) => f.type === fuelFilter)?.price ?? Infinity;
-        return pa - pb;
-      });
-    } else {
-      sorted.sort((a, b) => a.distanceKm - b.distanceKm);
-    }
-    return sorted.slice(0, LIST_LIMIT);
-  }, [stations, origin, center, sortMode, fuelFilter]);
-
-  const totalFound = stations.length;
-  const lastUpdateLabel = lastUpdate
-    ? lastUpdate.toLocaleTimeString("fr-FR", {
-        hour: "2-digit",
-        minute: "2-digit",
-      })
-    : "—";
+  }
 
   return (
-    <div className="flex flex-col h-screen bg-slate-100">
-      {/* Header */}
-      <header className="bg-emerald-700 text-white px-4 py-3 flex items-center justify-between shadow-sm">
-        <div className="flex items-center gap-2">
-          <span className="text-2xl">⛽</span>
-          <div>
-            <h1 className="font-bold text-lg leading-none">Essence Malin</h1>
-            <p className="text-[11px] text-emerald-100 leading-tight mt-0.5">
-              Prix officiels en temps réel · data.economie.gouv.fr
-            </p>
-          </div>
-        </div>
-        <div className="text-right hidden sm:block">
-          <div className="text-xs text-emerald-100">
-            {totalFound} station{totalFound > 1 ? "s" : ""} dans {radiusKm} km
-          </div>
-          <div className="text-[10px] text-emerald-200">
-            MàJ {lastUpdateLabel}
-          </div>
-        </div>
-      </header>
+    <Landing
+      onStart={(city) => {
+        setInitialCity(city);
+        setView("app");
+      }}
+    />
+  );
+}
 
-      {/* Contrôles */}
-      <Controls
-        fuelFilter={fuelFilter}
-        setFuelFilter={setFuelFilter}
-        sortMode={sortMode}
-        setSortMode={setSortMode}
-        radiusKm={radiusKm}
-        setRadiusKm={setRadiusKm}
-        onLocate={handleLocate}
-        onSearchCity={handleSearchCity}
-        onRefresh={handleRefresh}
-        locating={locating}
-        searching={searching}
-        loading={loading}
-        centerLabel={centerLabel}
-      />
+function Landing({ onStart }: { onStart: (city: string) => void }) {
+  const [searchInput, setSearchInput] = useState("");
+  const [activeTab, setActiveTab] = useState<"carte" | "comparateur">("carte");
 
-      {/* Erreur éventuelle */}
-      {error && (
-        <div className="px-4 py-2 bg-red-50 border-b border-red-200 text-sm text-red-700 flex items-center justify-between">
-          <span>⚠️ {error}</span>
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    onStart(searchInput.trim());
+  };
+
+  return (
+    <div className="bg-[#0a0a0b] text-white min-h-screen grain relative overflow-x-hidden">
+      {/* NAV */}
+      <nav className="fixed top-0 left-0 right-0 z-50 bg-[#0a0a0b]/70 backdrop-blur-xl border-b border-white/5">
+        <div className="max-w-7xl mx-auto px-6 lg:px-10 h-16 flex items-center justify-between">
+          <a href="#" className="flex items-center gap-2 group">
+            <div className="relative w-8 h-8 flex items-center justify-center">
+              <div className="absolute inset-0 rounded-full border border-[#00E676]/40 group-hover:border-[#00E676] transition-colors" />
+              <span className="font-display text-[#00E676] text-2xl leading-none">o</span>
+            </div>
+            <span className="font-display text-xl tracking-tight">O</span>
+          </a>
+
+          {/* Tabs Carte / Comparateur */}
+          <div className="flex items-center gap-1 bg-white/[0.03] border border-white/10 rounded-full p-1">
+            <button
+              onClick={() => {
+                setActiveTab("carte");
+                document.getElementById("content-section")?.scrollIntoView({ behavior: "smooth" });
+              }}
+              className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all ${
+                activeTab === "carte"
+                  ? "bg-[#00E676] text-black"
+                  : "text-white/60 hover:text-white"
+              }`}
+            >
+              Carte
+            </button>
+            <button
+              onClick={() => {
+                setActiveTab("comparateur");
+                document.getElementById("content-section")?.scrollIntoView({ behavior: "smooth" });
+              }}
+              className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all ${
+                activeTab === "comparateur"
+                  ? "bg-[#00E676] text-black"
+                  : "text-white/60 hover:text-white"
+              }`}
+            >
+              Comparateur
+            </button>
+          </div>
+
           <button
-            onClick={() => setError(null)}
-            className="text-red-600 hover:text-red-800 text-xs"
+            onClick={() => onStart("")}
+            className="group relative inline-flex items-center gap-2 bg-[#00E676] text-black px-5 py-2 rounded-full text-sm font-medium hover:bg-white transition-colors hidden md:inline-flex"
           >
-            ✕
+            App complète
+            <span className="transition-transform group-hover:translate-x-0.5">→</span>
           </button>
         </div>
-      )}
+      </nav>
 
-      {/* Corps : carte + liste (responsive) */}
-      <div className="flex-1 flex flex-col md:flex-row min-h-0">
-        {/* Carte */}
-        <div className="flex-1 min-h-[40vh] md:min-h-0 relative">
-          <Map
-            center={center}
-            stations={visibleStations}
-            selectedId={selectedId}
-            origin={origin}
-            fuelFilter={fuelFilter}
-            radiusKm={radiusKm}
-            onSelect={setSelectedId}
-          />
-          {loading && (
-            <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[1000] bg-white/95 backdrop-blur px-3 py-1.5 rounded-full shadow-md text-xs text-slate-700 flex items-center gap-2 border border-slate-200">
-              <span className="inline-block w-3 h-3 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin" />
-              Chargement des prix officiels…
-            </div>
-          )}
+      {/* HERO - Minimalist splash */}
+      <section className="relative min-h-screen flex flex-col items-center justify-center px-6 pt-24 pb-16 overflow-hidden">
+        {/* Subtle background glow */}
+        <div className="absolute top-1/2 left-1/2 w-[600px] h-[600px] rounded-full bg-[#00E676]/5 blur-[120px] -translate-x-1/2 -translate-y-1/2 pointer-events-none animate-breathe" />
+
+        {/* Content */}
+        <div className="relative z-10 max-w-4xl mx-auto text-center">
+          <h1 className="font-display text-[clamp(3rem,12vw,9rem)] leading-[0.95] tracking-tight mb-6 animate-fade-up">
+            L'essence la moins chère,
+            <br />
+            <span className="text-[#00E676]">proche de vous.</span>
+          </h1>
+          <p className="text-white/60 text-lg md:text-xl max-w-xl mx-auto mb-12 font-light animate-fade-up delay-100">
+            Trouvez en 3 secondes la station la moins chère autour de vous.
+            <br className="hidden md:block" />
+            Données officielles, mises à jour toutes les 10 minutes.
+          </p>
+          <button
+            onClick={() => onStart('')}
+            className="group inline-flex items-center gap-3 bg-[#00E676] text-black px-8 py-4 rounded-full text-base font-medium hover:bg-white transition-colors animate-fade-up delay-200"
+          >
+            Lancer la carte
+            <span className="transition-transform group-hover:translate-x-1">→</span>
+          </button>
         </div>
 
-        {/* Liste */}
-        <aside className="md:w-96 md:max-w-sm border-t md:border-t-0 md:border-l border-slate-200 bg-slate-50 overflow-hidden flex flex-col">
-          <StationList
-            stations={visibleStations}
-            totalFound={totalFound}
-            listLimit={LIST_LIMIT}
-            origin={origin}
-            fuelFilter={fuelFilter}
-            selectedId={selectedId}
-            onSelect={setSelectedId}
-            loading={loading}
-          />
-        </aside>
-      </div>
+        {/* Scroll indicator */}
+        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 text-white/30 animate-float">
+          <span className="text-[10px] uppercase tracking-[0.3em]">Scroll</span>
+          <div className="w-px h-8 bg-gradient-to-b from-white/40 to-transparent" />
+        </div>
+      </section>
 
-      {/* Footer */}
-      <footer className="px-4 py-2 text-[11px] text-slate-500 bg-white border-t border-slate-200 text-center">
-        Données :{" "}
-        <a
-          href="https://www.prix-carburants.gouv.fr"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-emerald-700 hover:underline"
-        >
-          prix-carburants.gouv.fr
-        </a>{" "}
-        (Licence Ouverte) · Carte © OpenStreetMap · Géocodage :{" "}
-        <a
-          href="https://adresse.data.gouv.fr"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-emerald-700 hover:underline"
-        >
-          adresse.data.gouv.fr
-        </a>
+      {/* CONTENT SECTION — Carte ou Comparateur */}
+      <section id="content-section" className="relative py-24 md:py-32 px-6 border-t border-white/5">
+        <div className="max-w-7xl mx-auto">
+          <div className="mb-12">
+            <p className="text-[11px] uppercase tracking-[0.3em] text-[#00E676] mb-4">
+              {activeTab === "carte" ? "Carte en temps réel" : "Comparez et économisez"}
+            </p>
+            <h2 className="font-display text-4xl md:text-6xl leading-[0.95] tracking-tight">
+              {activeTab === "carte"
+                ? "Trouvez votre station."
+                : "Calculez vos économies."}
+            </h2>
+          </div>
+
+          {activeTab === "carte" ? (
+            <>
+
+          {/* Search */}
+          <form onSubmit={handleSearch} className="mb-8">
+            <div className="relative max-w-2xl mx-auto group">
+              <div className="absolute -inset-[1px] bg-gradient-to-r from-transparent via-[#00E676]/30 to-transparent rounded-full opacity-0 group-focus-within:opacity-100 transition-opacity blur-sm" />
+              <div className="relative flex items-center gap-3 bg-white/[0.04] backdrop-blur-2xl border border-white/10 rounded-full pl-6 pr-2 py-2 group-focus-within:border-[#00E676]/50 transition-colors">
+                <svg className="w-5 h-5 text-white/40 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <circle cx="11" cy="11" r="7" />
+                  <path d="m20 20-3-3" strokeLinecap="round" />
+                </svg>
+                <input
+                  type="text"
+                  value={searchInput}
+                  onChange={(e) => setSearchInput(e.target.value)}
+                  placeholder="Votre ville ou code postal…"
+                  className="flex-1 bg-transparent outline-none text-white placeholder-white/30 text-base py-2"
+                />
+                <button type="submit" className="shrink-0 bg-[#00E676] text-black px-5 py-2.5 rounded-full text-sm font-medium hover:bg-white transition-colors">
+                  Chercher
+                </button>
+              </div>
+            </div>
+          </form>
+
+          {/* Price widget */}
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2 mb-8">
+            {NATIONAL_PRICES.map((fuel) => (
+              <div key={fuel.name} className="bg-white/[0.03] backdrop-blur-xl border border-white/10 rounded-2xl p-4 text-left hover:border-[#00E676]/30 transition-all">
+                <div className="text-[10px] uppercase tracking-[0.2em] text-white/40 mb-2">{fuel.name}</div>
+                <div className="flex items-baseline gap-1">
+                  <span className="text-2xl md:text-3xl font-light text-white tabular-nums">{fuel.price.toFixed(2)}</span>
+                  <span className="text-xs text-white/40">{fuel.unit}</span>
+                </div>
+                <div className={`text-[11px] mt-1 tabular-nums ${fuel.change < 0 ? "text-[#00E676]" : "text-red-400"}`}>
+                  {fuel.change < 0 ? "↓" : "↑"} {Math.abs(fuel.change).toFixed(1)} cts
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Map */}
+          <div className="relative rounded-3xl overflow-hidden border border-white/10 h-[500px] md:h-[600px]">
+            <MapContainer
+              center={[46.6, 2.3]}
+              zoom={6}
+              zoomControl={true}
+              scrollWheelZoom={true}
+              attributionControl={false}
+              className="w-full h-full"
+            >
+              <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" />
+              {HERO_CITIES.map((city) => (
+                <CircleMarker
+                  key={city.name}
+                  center={[city.lat, city.lng]}
+                  radius={3}
+                  pathOptions={{
+                    color: "#00E676",
+                    fillColor: "#00E676",
+                    fillOpacity: 0.9,
+                    weight: 0,
+                  }}
+                />
+              ))}
+            </MapContainer>
+            <div className="absolute bottom-4 left-4 bg-[#0a0a0b]/80 backdrop-blur-xl border border-white/10 rounded-full px-4 py-2 text-xs text-white/60">
+              <span className="inline-flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-[#00E676] animate-pulse-dot" />
+                9 847 stations actives
+              </span>
+            </div>
+          </div>
+            </>
+          ) : (
+            <Comparator />
+          )}
+        </div>
+      </section>
+
+
+
+
+
+
+
+
+
+      {/* FOOTER MINIMAL */}
+      <footer className="border-t border-white/5 px-6 py-8">
+        <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-2">
+            <div className="relative w-6 h-6 flex items-center justify-center">
+              <div className="absolute inset-0 rounded-full border border-[#00E676]/40" />
+              <span className="font-display text-[#00E676] text-lg leading-none">o</span>
+            </div>
+            <span className="font-display text-base">O</span>
+            <span className="text-xs text-white/30 ml-2">
+              © 2026 · Conçu en France
+            </span>
+          </div>
+          <div className="flex items-center gap-6 text-xs text-white/30">
+            <a
+              href="https://www.prix-carburants.gouv.fr"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:text-white transition-colors"
+            >
+              Données officielles ↗
+            </a>
+            <span className="flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#00E676] animate-pulse-dot" />
+              Live
+            </span>
+          </div>
+        </div>
       </footer>
     </div>
   );

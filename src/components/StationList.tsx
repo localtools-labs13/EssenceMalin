@@ -10,6 +10,7 @@ interface Props {
   selectedId: string | null;
   onSelect: (id: string) => void;
   loading: boolean;
+  dark?: boolean;
 }
 
 export default function StationList({
@@ -24,8 +25,8 @@ export default function StationList({
 }: Props) {
   if (loading && stations.length === 0) {
     return (
-      <div className="p-6 text-center text-sm text-slate-500 flex flex-col items-center gap-2">
-        <span className="inline-block w-6 h-6 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin" />
+      <div className="p-6 text-center text-sm text-white/50 flex flex-col items-center gap-2">
+        <span className="inline-block w-6 h-6 border-2 border-[#00E676] border-t-transparent rounded-full animate-spin" />
         Chargement des prix officiels…
       </div>
     );
@@ -33,7 +34,7 @@ export default function StationList({
 
   if (stations.length === 0) {
     return (
-      <div className="p-6 text-center text-sm text-slate-500">
+      <div className="p-6 text-center text-sm text-white/50">
         <div className="text-3xl mb-2">⛽</div>
         Aucune station trouvée dans la zone.
         <div className="mt-2 text-xs">
@@ -45,16 +46,16 @@ export default function StationList({
 
   return (
     <div className="flex flex-col h-full">
-      <div className="px-3 pt-3 pb-1 text-xs text-slate-500 flex items-center justify-between">
+      <div className="px-3 pt-3 pb-1 text-xs text-white/50 flex items-center justify-between">
         <span>
-          <b className="text-slate-700">{stations.length}</b>
+          <b className="text-white">{stations.length}</b>
           {totalFound > listLimit && (
-            <span className="text-slate-400"> / {totalFound}</span>
+            <span className="text-white/40"> / {totalFound}</span>
           )}{" "}
           station{stations.length > 1 ? "s" : ""}
         </span>
         {totalFound > listLimit && (
-          <span className="text-[10px] text-slate-400 italic">
+          <span className="text-[10px] text-white/40 italic">
             les plus proches
           </span>
         )}

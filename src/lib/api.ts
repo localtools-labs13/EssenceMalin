@@ -24,6 +24,7 @@ interface ApiRecord {
   cp?: string;
   adresse?: string;
   ville?: string;
+  pop?: string; // R = routier, A = autoroutier
   geom?: { lon: number; lat: number };
   gazole_prix?: number | null;
   gazole_maj?: string | null;
@@ -40,9 +41,141 @@ interface ApiRecord {
   departement?: string;
 }
 
+// Cache des marques (ID station -> marque)
+const brandCache = new Map<string, string>();
+let brandCacheLoaded = false;
+
+/** Charge les marques depuis le flux XML officiel (une seule fois) */
+async function loadBrands(): Promise<void> {
+  if (brandCacheLoaded) return;
+  try {
+    // On essaie plusieurs proxies CORS pour maximiser les chances de succès
+    const proxies = [
+      "https://corsproxy.io/?",
+      "https://api.allorigins.win/raw?url=",
+      "https://cors-anywhere.herokuapp.com/",
+    ];
+    
+    const targetUrl = "https://donnees.roulez-eco.fr/opendata/instantane";
+    let buffer: ArrayBuffer | null = null;
+    
+    for (const proxyUrl of proxies) {
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 8000);
+        
+        const url = proxyUrl === "https://cors-anywhere.herokuapp.com/" 
+          ? proxyUrl + targetUrl
+          : proxyUrl + encodeURIComponent(targetUrl);
+        
+        const res = await fetch(url, { signal: controller.signal });
+        clearTimeout(timeout);
+        
+        if (res.ok) {
+          buffer = await res.arrayBuffer();
+          console.log(`✅ Proxy ${proxyUrl} a fonctionné`);
+          break;
+        }
+      } catch (e) {
+        console.log(`❌ Proxy ${proxyUrl} a échoué`);
+        continue;
+      }
+    }
+    
+    if (!buffer) throw new Error("Tous les proxies ont échoué");
+    
+    const JSZip = (await import("jszip")).default;
+    const zip = await JSZip.loadAsync(buffer);
+    const xmlFile = Object.values(zip.files).find((f: any) => f.name.endsWith(".xml"));
+    if (!xmlFile) throw new Error("No XML in zip");
+    
+    const xmlText = await (xmlFile as any).async("text");
+    const parser = new DOMParser();
+    const xml = parser.parseFromString(xmlText, "text/xml");
+    const pdvs = xml.querySelectorAll("pdv");
+    
+    pdvs.forEach(pdv => {
+      const id = pdv.getAttribute("id");
+      const marqueEl = pdv.querySelector("marque");
+      if (id && marqueEl?.textContent) {
+        const brand = marqueEl.textContent.trim();
+        if (brand) brandCache.set(id, brand);
+      }
+    });
+    
+    brandCacheLoaded = true;
+    console.log(`✅ ${brandCache.size} marques chargées depuis le XML officiel`);
+  } catch (e) {
+    console.warn("⚠️ Marques non chargées, utilisation du fallback:", e);
+    brandCacheLoaded = true;
+  }
+}
+
 interface ApiResponse {
   total_count: number;
   results: ApiRecord[];
+}
+
+/** Patterns de détection de marques (clé -> nom normalisé) */
+const BRAND_PATTERNS: [RegExp, string][] = [
+  // Pétroliers
+  [/TOTAL\s*ACCESS/i, "Total Access"],
+  [/TOTAL\s*ENERG/i, "TotalEnergies"],
+  [/\bTOTAL\b/i, "TotalEnergies"],
+  [/\bELF\b/i, "Elf"],
+  [/\bBP\b/, "BP"],
+  [/ESSO\s*EXPRESS/i, "Esso Express"],
+  [/\bESSO\b/i, "Esso"],
+  [/\bSHELL\b/i, "Shell"],
+  [/\bAVIA\b/i, "Avia"],
+  [/\bAGIP\b/i, "Agip"],
+  [/\bENI\b/i, "Eni"],
+  [/DYNEFF/i, "Dyneff"],
+  [/PICOTY/i, "Picoty"],
+  [/VITO/i, "Vito"],
+  
+  // Grande distribution
+  [/CARREFOUR\s*MARKET/i, "Carrefour Market"],
+  [/CARREFOUR\s*CONTACT/i, "Carrefour Contact"],
+  [/CARREFOUR\s*EXPRESS/i, "Carrefour Express"],
+  [/\bCARREFOUR\b/i, "Carrefour"],
+  [/\bE\.?\s*LECLERC\b/i, "E.Leclerc"],
+  [/\bLECLERC\b/i, "E.Leclerc"],
+  [/INTERMARCHE\s*CONTACT/i, "Intermarché Contact"],
+  [/INTERMARCHE\s*EXPRESS/i, "Intermarché Express"],
+  [/INTER\s*MARCHE/i, "Intermarché"],
+  [/\bINTERMARCHE\b/i, "Intermarché"],
+  [/HYPER\s*U\b/i, "Hyper U"],
+  [/SUPER\s*U\b/i, "Super U"],
+  [/U\s*EXPRESS/i, "U Express"],
+  [/SYSTEME?\s*U/i, "Système U"],
+  [/\bAUCHAN\b/i, "Auchan"],
+  [/\bCASINO\b/i, "Casino"],
+  [/GEANT\b/i, "Géant Casino"],
+  [/\bCORA\b/i, "Cora"],
+  [/\bMATCH\b/i, "Match"],
+  [/\bNETTO\b/i, "Netto"],
+  [/\bLIDL\b/i, "Lidl"],
+  [/\bMONOPRIX\b/i, "Monoprix"],
+  
+  // Autoroutes
+  [/AIRE\s*DE\b/i, "Station autoroutière"],
+  [/AUTOROUTE/i, "Station autoroutière"],
+];
+
+/** Essaie de deviner la marque depuis l'adresse, la ville, ou le type de station */
+function guessBrand(address: string, city: string, pop?: string): string {
+  const text = `${address} ${city}`;
+  
+  // Chercher dans les patterns
+  for (const [pattern, brand] of BRAND_PATTERNS) {
+    if (pattern.test(text)) return brand;
+  }
+  
+  // Fallback basé sur le type de station (R = routier, A = autoroutier)
+  if (pop === "A") return "Station autoroutière";
+  
+  return "Station-service";
 }
 
 /** Convertit un enregistrement API en Station interne. */
@@ -65,8 +198,17 @@ function toStation(r: ApiRecord): Station | null {
   }
   if (fuels.length === 0) return null;
 
-  // Pas de marque/enseigne dans l'opendata officiel — on affiche le département
-  const brand = r.departement ? `Station · ${r.departement}` : "Station-service";
+  const address = r.adresse || "Adresse non communiquée";
+  const city = r.ville || "";
+  const id = String(r.id);
+  
+  // 1. Chercher dans le cache des vraies marques (chargé depuis XML officiel)
+  let brand = brandCache.get(id);
+  
+  // 2. Sinon, essayer de deviner depuis l'adresse
+  if (!brand) {
+    brand = guessBrand(address, city, r.pop);
+  }
 
   return {
     id: String(r.id),
@@ -104,6 +246,8 @@ export async function fetchStationsAround(
   signal?: AbortSignal,
   maxResults = 300
 ): Promise<Station[]> {
+  // Charger les marques en arrière-plan (non bloquant)
+  loadBrands().catch(() => {});
   const whereParts: string[] = [
     `distance(geom, GEOM'POINT(${num(origin.lng)} ${num(origin.lat)})', ${Math.round(
       radiusKm

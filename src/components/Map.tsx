@@ -143,10 +143,13 @@ export default function Map({
             <Popup>
               <div>
                 <div className="font-semibold">
-                  {s.address}
+                  {s.brand}
                   {isCheapest && <span className="ml-1">🏆</span>}
                 </div>
-                <div className="text-slate-600">
+                <div className="text-slate-700 text-xs">
+                  {s.address}
+                </div>
+                <div className="text-slate-500 text-xs">
                   {s.postalCode} {s.city}
                 </div>
                 {fuelFilter !== "all" ? (
